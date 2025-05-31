@@ -1,0 +1,14 @@
+{
+  "name": "fraya",
+  "version": "1.0.0",
+  "description": "Fraya AI Executive Assistant",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "format": "prettier --write ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {}
+}
