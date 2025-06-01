@@ -1,0 +1,32 @@
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+ENV/
+
+# Mac
+.DS_Store
+
+# Logs
+*.log
+
+# VSCode
+.vscode/
+
+# OS junk
+Thumbs.db
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Misc
+.env
+.env.*
