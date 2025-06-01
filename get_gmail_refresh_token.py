@@ -1,8 +1,11 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-CLIENT_ID = "929092708820-g2ib79ieckdme5r9aot3qegqgeojm1gq.apps.googleusercontent.com"
-CLIENT_SECRET = "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"
+# Requires environment variables: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
+CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.modify"
@@ -19,7 +22,7 @@ flow = InstalledAppFlow.from_client_config(
     },
     SCOPES
 )
-
+why does it 
 """
 Run this script to obtain a Gmail OAuth refresh token for polling Gmail.
 If you get 'Refresh Token: None', go to https://myaccount.google.com/permissions, remove this app's access, and run the script again.

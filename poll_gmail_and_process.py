@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import django
 import logging
 import sys
@@ -32,8 +34,9 @@ from core.models import User, Preference
 from packages.agents.email_analyzer_agent import EmailAnalyzerAgent
 
 # Replace these with your actual Google API client credentials
-GOOGLE_CLIENT_ID = '929092708820-g2ib79ieckdme5r9aot3qegqgeojm1gq.apps.googleusercontent.com'
-GOOGLE_CLIENT_SECRET = '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'
+# Requires environment variables: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET
+GOOGLE_CLIENT_ID = os.environ.get('GOOGLE_CLIENT_ID')
+GOOGLE_CLIENT_SECRET = os.environ.get('GOOGLE_CLIENT_SECRET')
 
 logging.basicConfig(level=logging.INFO)
 

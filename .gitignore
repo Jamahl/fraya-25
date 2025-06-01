@@ -30,3 +30,5 @@ build/
 # Misc
 .env
 .env.*
+apps/api/.env
+
