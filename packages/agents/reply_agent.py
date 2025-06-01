@@ -31,4 +31,16 @@ class ReplyAgent:
         """
         Draft a reply to an email, using the agent's user preferences for tone, style, and context.
         """
-        pass
+        subject = email_context.get("subject", "your inquiry")
+        sender = email_context.get("from", "there")
+        tone = self.preferences.get("tone", "professional")
+        name = self.preferences.get("name", "Fraya AI")
+        if tone == "friendly":
+            greeting = f"Hi {sender.split('@')[0]},"
+            body = f"Thanks so much for reaching out about '{subject}'. I'd love to help you!"
+            closing = f"Best,\n{name}"
+        else:
+            greeting = f"Hello {sender.split('@')[0]},"
+            body = f"Thank you for your email regarding '{subject}'. I will review it and get back to you soon."
+            closing = f"Regards,\n{name}"
+        return f"{greeting}\n\n{body}\n\n{closing}"

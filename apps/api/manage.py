@@ -2,6 +2,11 @@
 """Django's command-line utility for administrative tasks."""
 import os
 import sys
+# Ensure 'packages' is in sys.path for agent imports
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+AGENTS_DIR = os.path.join(BASE_DIR, 'packages')
+if AGENTS_DIR not in sys.path:
+    sys.path.insert(0, AGENTS_DIR)
 
 
 def main():
