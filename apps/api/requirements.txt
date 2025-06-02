@@ -5,3 +5,9 @@ dj-database-url
 python-dotenv
 django-cors-headers
 jsonschema>=4.0.0
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+agentops
+crewai[tools]
+

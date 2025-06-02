@@ -24,6 +24,11 @@ const Dashboard = () => {
     return <div className="flex h-screen items-center justify-center">Loading...</div>;
   }
 
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.replace("/");
+  };
+
   return (
     <main className="flex flex-col items-center justify-center min-h-screen bg-white">
       <div className="mb-6 text-2xl font-bold">Welcome to your Dashboard!</div>
@@ -37,6 +42,15 @@ const Dashboard = () => {
       >
         Settings
       </a>
+      <button
+        onClick={handleLogout}
+        className="mt-8 px-6 py-3 bg-gray-200 text-gray-900 rounded shadow hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+        tabIndex={0}
+        aria-label="Log out"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleLogout(); }}
+      >
+        Log out
+      </button>
     </main>
   );
 };

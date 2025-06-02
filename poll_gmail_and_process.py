@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 import agentops
 from crew import process_email
+from crewai_tools import MCPServerAdapter
 
 agentops.init(
     api_key='067103c2-e2d0-4954-9b1d-707b36aa534f',
@@ -71,86 +72,116 @@ def process_new_emails_for_user(user):
     )
     return creds
 
-def process_new_emails_for_user(user):
-    if not user.google_refresh_token:
-        print(f"No Gmail credentials for user {user.email}")
-        return
-    creds = Credentials(
-        None,
-        refresh_token=user.google_refresh_token,
-        client_id=GOOGLE_CLIENT_ID,
-        client_secret=GOOGLE_CLIENT_SECRET,
-        token_uri="https://oauth2.googleapis.com/token"
-    )
-    service = build('gmail', 'v1', credentials=creds)
-    # Track last processed email timestamp persistently
-    ts_file = f".last_email_timestamp_{user.email.replace('@', '_').replace('.', '_')}"
-    last_ts = 0
-    if os.path.exists(ts_file):
-        with open(ts_file, 'r') as f:
-            try:
-                last_ts = int(f.read().strip())
-            except Exception:
-                last_ts = 0
-    results = service.users().messages().list(
-        userId='me', labelIds=['INBOX'], q='category:primary is:unread', maxResults=10
-    ).execute()
-    messages = results.get('messages', [])
-    if not messages:
-        print(f"No unread emails for user {user.email} in INBOX.")
-        logging.info(f"No unread emails for user={user.email} in INBOX.")
-        return
-    # Gather all unread emails with their internalDate
-    msg_details = []
-    for msg in messages:
-        msg_data = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
-        internal_date = int(msg_data.get('internalDate', '0'))
-        msg_details.append((internal_date, msg_data))
-    # Sort by internalDate ascending (oldest to newest)
-    msg_details.sort(key=lambda x: x[0])
-    newest_processed_ts = last_ts
-    for internal_date, msg_data in msg_details:
-        if internal_date <= last_ts:
-            continue  # Already processed
-        msg_id = msg_data['id']
-        headers = {h['name']: h['value'] for h in msg_data['payload'].get('headers', [])}
-        email_json = {
-            'from': headers.get('From', ''),
-            'to': headers.get('To', ''),
-            'timestamp': datetime.utcfromtimestamp(internal_date / 1000).isoformat() + 'Z',
-            'subject': headers.get('Subject', ''),
-            'body': msg_data['snippet'],
-            'message_id': msg_id
-        }
-        logging.info(f"[NEW EMAIL] user={user.email}: {email_json}")
-        print("\n===== New Email Detected in Primary Inbox =====")
-        print(f"From:      {email_json['from']}")
-        print(f"To:        {email_json['to']}")
-        print(f"Timestamp: {email_json['timestamp']}")
-        print(f"\033[92m[NEW EMAIL]\033[0m {email_json['from']} -> {email_json['to']} | Subject: {email_json['subject']} | Date: {email_json['timestamp']}")
-        print(f"\033[96m{email_json['body']}\033[0m\n")
-        # Process email with CrewAI crew
-        process_email(email_json, creds)
-        # Mark as read after processing
-        service.users().messages().modify(userId='me', id=msg_id, body={'removeLabelIds': ['UNREAD']}).execute()
-        logging.info(f"Marked email as read for user={user.email}, message_id={msg_id}")
-        newest_processed_ts = max(newest_processed_ts, internal_date)
-    # Save the timestamp of the latest processed email
-    if newest_processed_ts > last_ts:
-        with open(ts_file, 'w') as f:
-            f.write(str(newest_processed_ts))
+def get_tool(mcp_tools, name):
+    for tool in mcp_tools:
+        if tool.name == name or tool.name.lower() == name.lower():
+            return tool
+    raise ValueError(f"Tool {name} not found in MCP tools")
 
-def main():
+def process_new_emails_for_user(user, mcp_tools):
+    """
+    Poll unread emails for the user using MCP-native Gmail fetch, process with CrewAI, and mark as read.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        fetch_emails_tool = get_tool(mcp_tools, "GMAIL_FETCH_EMAILS")
+        move_to_trash_tool = get_tool(mcp_tools, "GMAIL_MOVE_TO_TRASH")
+    except Exception as lookup_exc:
+        logger.error(f"Could not find required MCP tools: {lookup_exc}")
+        return
+
+    # Use MCP-native tool to fetch unread emails for the user
+    try:
+        logger.info(f"Using Tool: {fetch_emails_tool.name}")
+        emails_response = fetch_emails_tool.run(
+            user_id=user.email,
+            label_ids=["INBOX", "UNREAD"],
+            max_results=10,
+            include_payload=True
+        )
+        logger.info(f"Raw tool response: {repr(emails_response)}")
+        # Ensure emails_response is a dict, not a JSON string
+        if isinstance(emails_response, str):
+            import json
+            try:
+                emails_response = json.loads(emails_response)
+            except Exception:
+                logger.error(f"Tool returned non-JSON string: {emails_response}")
+                return
+        emails = emails_response.get("messages", [])
+        if not emails:
+            logger.info(f"No unread emails for user={user.email} in INBOX.")
+            return
+        for email in emails:
+            payload = email.get("payload", {})
+            headers = {h['name']: h['value'] for h in payload.get('headers', [])}
+            internal_date = int(email.get('internalDate', '0'))
+            email_json = {
+                'from': headers.get('From', ''),
+                'to': headers.get('To', ''),
+                'timestamp': datetime.utcfromtimestamp(internal_date / 1000).isoformat() + 'Z',
+                'subject': headers.get('Subject', ''),
+                'body': email.get('snippet', ''),
+                'message_id': email.get('id', ''),
+                'thread_id': email.get('threadId', '')
+            }
+            logger.info(f"[NEW EMAIL][MCP] user={user.email}: {email_json}")
+            print("\n===== New Email Detected in Primary Inbox (MCP) =====")
+            print(f"From:      {email_json['from']}")
+            print(f"To:        {email_json['to']}")
+            print(f"Timestamp: {email_json['timestamp']}")
+            print(f"\033[92m[NEW EMAIL]\033[0m {email_json['from']} -> {email_json['to']} | Subject: {email_json['subject']} | Date: {email_json['timestamp']}")
+            print(f"\033[96m{email_json['body']}\033[0m\n")
+            # Process email with CrewAI crew
+            process_email(email_json, mcp_tools)
+            # Mark as read after processing
+            try:
+                move_to_trash_tool.run(
+                    message_id=email_json['message_id'],
+                    user_id=user.email
+                )
+                logger.info(f"Marked email as read (moved to trash) for user={user.email}, message_id={email_json['message_id']}")
+            except Exception as mark_exc:
+                logger.warning(f"Failed to mark email as read for user={user.email}, message_id={email_json['message_id']}: {mark_exc}")
+    except Exception as exc:
+        import traceback
+        logger.error(f"MCP Gmail fetch failed for user={user.email}: {repr(exc)}")
+        logger.error(traceback.format_exc())
+        return
+
+import anyio
+from mcp.shared.exceptions import McpError
+
+def resilient_main():
     POLL_INTERVAL_SECONDS = 30
+    RECONNECT_SLEEP_SECONDS = 60
+    server_params = [
+        {"url": "https://mcp.composio.dev/partner/composio/gmail?customerId=9467730e-5b69-44c9-9b26-4e0c67893c96&transport=sse", "transport": "sse"},
+        {"url": "https://mcp.composio.dev/partner/composio/googlecalendar?customerId=9467730e-5b69-44c9-9b26-4e0c67893c96&transport=sse", "transport": "sse"},
+    ]
+    import logging
+    logger = logging.getLogger(__name__)
     while True:
-        users = User.objects.exclude(google_refresh_token__isnull=True).exclude(google_refresh_token='')
-        print(f'Polling: Found {users.count()} users with refresh tokens.')
-        for user in users:
-            print(f'Processing user: {user.email}')
-            process_new_emails_for_user(user)
-        print(f'Polling complete. Sleeping {POLL_INTERVAL_SECONDS} seconds...')
-        time.sleep(POLL_INTERVAL_SECONDS)
+        try:
+            with MCPServerAdapter(server_params) as mcp_tools:
+                users = User.objects.exclude(google_refresh_token__isnull=True).exclude(google_refresh_token='')
+                logger.info(f'Polling: Found {users.count()} users with refresh tokens.')
+                for user in users:
+                    logger.info(f'Processing user: {user.email}')
+                    process_new_emails_for_user(user, mcp_tools)
+            logger.info(f'Polling complete. Sleeping {POLL_INTERVAL_SECONDS} seconds...')
+            time.sleep(POLL_INTERVAL_SECONDS)
+        except (anyio.ClosedResourceError, McpError) as e:
+            logger.error(f"MCP connection closed, reconnecting in {RECONNECT_SLEEP_SECONDS} seconds... {e}")
+            time.sleep(RECONNECT_SLEEP_SECONDS)
+        except Exception as e:
+            import traceback
+            logger.error(f"Unexpected error, reconnecting in {RECONNECT_SLEEP_SECONDS} seconds... {e}")
+            logger.error(traceback.format_exc())
+            time.sleep(RECONNECT_SLEEP_SECONDS)
 
 
 if __name__ == "__main__":
-    main()
+    resilient_main()

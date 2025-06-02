@@ -28,7 +28,12 @@ export default function Home() {
     setSuccess(null);
     setLoading(true);
     try {
-      const { error: loginError } = await supabase.auth.signInWithOAuth({ provider: "google" });
+      const { error: loginError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          scope: "openid email profile https://www.googleapis.com/auth/calendar"
+        }
+      });
       if (loginError) {
         setError("Google sign-in failed. Please try again.");
         setLoading(false);

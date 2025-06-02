@@ -196,6 +196,7 @@ class CalendarEventsView(APIView):
     GET: Return a mock list of Google Calendar events for the user.
     """
     def get(self, request, *args, **kwargs):
+        import requests
         user_id = request.GET.get('user_id')
         if not user_id:
             return Response({'error': 'Missing user_id'}, status=status.HTTP_400_BAD_REQUEST)
@@ -203,11 +204,42 @@ class CalendarEventsView(APIView):
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-        # In production, use user.google_refresh_token to fetch real events
-        events = [
-            {"summary": "Meeting with Bob", "start": "2025-06-01T10:00:00Z", "end": "2025-06-01T11:00:00Z"}
-        ]
-        return Response({"events": events}, status=status.HTTP_200_OK)
+        refresh_token = user.google_refresh_token
+        if not refresh_token:
+            return Response({'error': 'No Google refresh token found for user'}, status=status.HTTP_400_BAD_REQUEST)
+        # Exchange refresh token for access token
+        client_id = os.environ.get('GOOGLE_CLIENT_ID')
+        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+        if not client_id or not client_secret:
+            return Response({'error': 'Google client credentials not set'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        token_url = 'https://oauth2.googleapis.com/token'
+        token_data = {
+            'client_id': client_id,
+            'client_secret': client_secret,
+            'refresh_token': refresh_token,
+            'grant_type': 'refresh_token',
+        }
+        token_resp = requests.post(token_url, data=token_data)
+        if not token_resp.ok:
+            return Response({'error': 'Failed to exchange refresh token', 'details': token_resp.json()}, status=status.HTTP_400_BAD_REQUEST)
+        access_token = token_resp.json().get('access_token')
+        if not access_token:
+            return Response({'error': 'No access token returned from Google'}, status=status.HTTP_400_BAD_REQUEST)
+        # Fetch calendar events
+        events_url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events'
+        events_params = {
+            'maxResults': 10,
+            'orderBy': 'startTime',
+            'singleEvents': True,
+            'timeMin': requests.utils.formatdate(usegmt=True),
+        }
+        headers = {'Authorization': f'Bearer {access_token}'}
+        events_resp = requests.get(events_url, headers=headers, params=events_params)
+        if not events_resp.ok:
+            return Response({'error': 'Failed to fetch calendar events', 'details': events_resp.json()}, status=status.HTTP_400_BAD_REQUEST)
+        events = events_resp.json().get('items', [])
+        return Response({'events': events}, status=status.HTTP_200_OK)
+
 
 class SendEmailView(APIView):
     """
