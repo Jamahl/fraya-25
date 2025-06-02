@@ -37,23 +37,20 @@ const [form, setForm] = useState<PreferencesForm>({
         return;
       }
       setSession(data.session);
-      // Fetch preferences from backend
-      try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/preferences/?user_id=${data.session.user.id}`
-        );
-        if (res.ok) {
-          const prefs = await res.json();
-          setForm({
-            preferred_days: prefs.preferred_days || [],
-            preferred_times: prefs.preferred_times || "",
-            buffer_minutes: prefs.buffer_minutes ?? 15,
-            tone: prefs.tone || "professional",
-            style: prefs.style || "concise",
-          });
-        }
-      } catch (e) {
-        // fallback: do nothing, form stays default
+      // Fetch preferences from Supabase
+      const { data: prefs, error } = await supabase
+        .from("preferences")
+        .select("preferred_days, preferred_times, buffer_minutes, tone, style")
+        .eq("user_id", data.session.user.id)
+        .maybeSingle();
+      if (!error && prefs) {
+        setForm({
+          preferred_days: prefs.preferred_days || [],
+          preferred_times: prefs.preferred_times || "",
+          buffer_minutes: prefs.buffer_minutes ?? 15,
+          tone: prefs.tone || "professional",
+          style: prefs.style || "concise",
+        });
       }
       setLoading(false);
     };
@@ -81,19 +78,24 @@ const [form, setForm] = useState<PreferencesForm>({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!session) return;
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/preferences/?user_id=${session.user.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, user_id: session.user.id }),
-      });
-      if (res.ok) {
-        alert("Preferences saved!");
-      } else {
-        alert("Failed to save preferences");
-      }
-    } catch (err) {
-      alert("Error saving preferences");
+    const now = new Date().toISOString();
+    const { error } = await supabase.from("preferences")
+      .upsert([
+        {
+          user_id: session.user.id,
+          preferred_days: form.preferred_days,
+          preferred_times: form.preferred_times,
+          buffer_minutes: form.buffer_minutes,
+          tone: form.tone,
+          style: form.style,
+          created_at: now,
+          updated_at: now,
+        }
+      ], { onConflict: 'user_id' });
+    if (!error) {
+      alert("Preferences saved!");
+    } else {
+      alert("Failed to save preferences");
     }
   };
 
